@@ -1,0 +1,832 @@
+﻿<!DOCTYPE html>
+
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CMYWK Color Mixer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;700;900&family=Noto+Sans+JP:wght@300;400;700;900&family=Noto+Sans+KR:wght@300;400;700;900&display=swap');
+
+        body {
+            font-family: 'Noto Sans TC', 'Noto Sans JP', 'Noto Sans KR', sans-serif;
+            background-color: #f8fafc;
+            color: #0f172a;
+            overscroll-behavior-y: contain;
+        }
+
+        #canvas-container canvas {
+            width: 100% !important;
+            height: auto !important;
+            min-height: 300px;
+            image-rendering: pixelated;
+            cursor: crosshair;
+            border-radius: 16px;
+            display: block;
+            touch-action: none;
+        }
+
+        .recipe-item {
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .loading-spinner {
+            border: 2px solid #e2e8f0;
+            border-top: 2px solid #3b82f6;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        #magnifier {
+            position: absolute;
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+            width: 60px;
+            height: 60px;
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+            background-color: #fff;
+        }
+
+            #magnifier::before, #magnifier::after {
+                content: '';
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                background-color: rgba(255, 255, 255, 0.6);
+                transform: translate(-50%, -50%);
+                pointer-events: none;
+            }
+
+            #magnifier::before {
+                width: 1px;
+                height: 10px;
+            }
+
+            #magnifier::after {
+                width: 10px;
+                height: 1px;
+            }
+
+        #magnifier-inner-box {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 3px;
+            height: 3px;
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+            pointer-events: none;
+        }
+
+        .drag-active {
+            border-color: #3b82f6 !important;
+            background-color: #eff6ff !important;
+            transform: scale(1.01);
+        }
+
+        .rotate-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .is-open .rotate-icon {
+            transform: rotate(180deg);
+        }
+        /* ===== CMYWK Color Mixer ===== */
+
+        :root {
+            --page-bg: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-main: #171717;
+            --text-muted: #737373;
+            --border: #e5e5e5;
+        }
+
+        body {
+            background: var(--page-bg);
+            color: var(--text-main);
+        }
+
+        .brand-mark {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 36px;
+            padding: 0 10px;
+            border-radius: 8px;
+            background: #171717;
+            color: white;
+            font-size: 14px;
+            font-weight: 900;
+            letter-spacing: -0.05em;
+        }
+
+        #palette-grid {
+            gap: 12px !important;
+        }
+
+            #palette-grid > div {
+                padding: 12px 8px;
+                border: 1px solid var(--border);
+                border-radius: 14px;
+                background: #fafafa;
+                transition: transform .2s ease, box-shadow .2s ease;
+            }
+
+                #palette-grid > div:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 8px 20px rgba(0, 0, 0, .08);
+                }
+
+                #palette-grid > div > div {
+                    height: 52px !important;
+                    border-radius: 10px !important;
+                }
+
+        #result-area {
+            gap: 28px;
+        }
+
+        #target-color-box,
+        #mixed-color-box {
+            border-radius: 12px !important;
+        }
+
+        .recipe-item {
+            padding: 12px 14px;
+            border: 1px solid #eeeeee;
+            border-radius: 12px;
+            background: #fafafa;
+        }
+
+            .recipe-item:hover {
+                background: #f5f5f5;
+            }
+
+        #similarity-score {
+            letter-spacing: -0.06em;
+        }
+
+        @media (min-width: 1024px) {
+            body {
+                padding-top: 48px;
+            }
+
+            .max-w-7xl {
+                max-width: 1320px;
+            }
+        }
+    </style>
+   
+
+</head>
+<body class="p-4 md:p-6 lg:p-10 lg:pt-16">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header Section -->
+        <header class="mb-5 flex flex-col gap-5">
+
+            
+            <!-- Desktop Grid Layout -->
+            <div class="hidden lg:grid grid-cols-12 gap-8 w-full items-end">
+                <!-- Left Group: Title and Lang buttons aligned to image edge -->
+                <div class="col-span-8 flex flex-row items-end justify-between">
+                    <div class="flex flex-row items-end gap-3 whitespace-nowrap">
+                        <h1 class="text-4xl font-black text-slate-900 tracking-tight leading-none">
+                            <span class="brand-mark">CMY</span>
+                            <span>Color Mixer</span>
+                        </h1>
+                       </div>
+                </div>
+
+                <!-- Right Group: Hint and Reset aligned to analysis edge -->
+                <div class="col-span-4 flex flex-row items-end justify-end gap-2 mb-[-2px]">
+                    <!-- Updated Hint size to 11px -->
+                    <button onclick="resetApp()" class="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 px-5 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        <span data-i18n="resetBtn">重置圖片</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mobile Only Layout -->
+            <div class="flex lg:hidden flex-col gap-5">
+                <div class="flex flex-row items-end justify-start gap-2 whitespace-nowrap">
+                    <h1 class="text-xl font-black text-slate-900 tracking-tight leading-none">
+                        <span class="brand-mark">CMY</span>
+                        Color Mixer
+                    </h1>
+                    </div>
+                <div class="flex flex-row items-end justify-between w-full">
+                    <div class="flex bg-slate-100 p-1 rounded-xl shadow-sm border border-slate-200 gap-1">
+                        <button onclick="setLang('zh')" class="lang-btn-mob px-2 py-1.5 text-[10px] font-bold rounded-lg transition-all" id="lang-zh-mob">繁中</button>
+                        <button onclick="setLang('en')" class="lang-btn-mob px-2 py-1.5 text-[10px] font-bold rounded-lg transition-all" id="lang-en-mob">EN</button>
+                        <button onclick="setLang('ja')" class="lang-btn-mob px-2 py-1.5 text-[10px] font-bold rounded-lg transition-all" id="lang-ja-mob">日本語</button>
+                        <button onclick="setLang('ko')" class="lang-btn-mob px-2 py-1.5 text-[10px] font-bold rounded-lg transition-all" id="lang-ko-mob">한국어</button>
+                    </div>
+                    <button onclick="resetApp()" class="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 px-3 py-1.5 rounded-xl font-bold text-sm transition-all shadow-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        <span data-i18n="resetBtn">重置圖片</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+            <div class="lg:col-span-8 flex flex-col gap-6">
+
+                <!-- CMYWK Palette -->
+                <div class="order-1 lg:order-2 bg-white p-5 md:p-7 rounded-2xl shadow-sm border border-neutral-200">
+
+                    <div class="flex items-center justify-between mb-5">
+                        <div>
+                            <div class="text-[11px] font-bold tracking-[0.18em] text-neutral-400 uppercase">
+                                Color System
+                            </div>
+                            <h2 class="text-xl font-black tracking-tight text-neutral-900 mt-1">
+                                CMYWK Palette
+                            </h2>
+                        </div>
+
+                        <div class="text-[11px] font-bold text-neutral-400">
+                            5 BASE COLORS
+                        </div>
+                    </div>
+
+                    <div id="palette-grid"
+                         class="grid grid-cols-5 gap-2 md:gap-3">
+                    </div>
+
+                </div>
+
+                <!-- Image Area -->
+                <div class="order-2 lg:order-1 relative">
+                    <div class="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
+                        <!-- Image header -->
+                        <div class="flex items-center justify-between px-5 py-4 border-b border-neutral-100">
+                            <div>
+                                <div class="text-[10px] font-bold tracking-[0.18em] text-neutral-400 uppercase">
+                                    圖片預覽
+                                </div>
+                                <div class="text-sm font-black text-neutral-800 mt-1">
+                                    從圖片選取顏色
+                                </div>
+                            </div>
+                            <div class="text-[10px] font-bold text-neutral-400">
+                                3 × 3 SAMPLE
+                            </div>
+                        </div>
+
+                        <!-- Drop zone -->
+                        <div id="main-drop-zone"
+                             class="relative overflow-hidden transition-all duration-300">
+                            <div id="drop-inner" class="relative">
+                                <!-- Empty state -->
+                                <div id="canvas-placeholder"
+                                     class="flex flex-col items-center justify-center min-h-[400px] md:min-h-[560px] bg-neutral-50 border-b border-neutral-100 transition-all">
+                                    <div class="w-16 h-16 rounded-2xl bg-white border border-neutral-200 flex items-center justify-center mb-5 shadow-sm">
+                                        <svg class="w-7 h-7 text-neutral-300"
+                                             fill="none"
+                                             stroke="currentColor"
+                                             viewBox="0 0 24 24">
+                                            <path stroke-linecap="round"
+                                                  stroke-linejoin="round"
+                                                  stroke-width="1.7"
+                                                  d="M12 16V4m0 0L7 9m5-5l5 5M5 20h14">
+                                            </path>
+                                        </svg>
+                                    </div>
+                                    <p class="text-neutral-700 font-black text-base md:text-lg mb-2">
+                                        拖曳圖片到這裡
+                                    </p>
+                                    <p class="text-neutral-400 text-xs md:text-sm">
+                                        或點擊選擇圖片
+                                    </p>
+                                    <div class="mt-4 px-3 py-1.5 rounded-lg bg-white border border-neutral-200 text-[10px] font-bold text-neutral-400">
+                                        支援 Ctrl + V 貼上圖片
+                                    </div>
+                                    <input type="file"
+                                           id="imageLoader"
+                                           accept="image/*"
+                                           class="absolute inset-0 opacity-0 cursor-pointer"
+                                           title="" />
+
+                                </div>
+                                <!-- Canvas -->
+                                <div id="canvas-container"
+                                     class="hidden relative overflow-hidden bg-white">
+                                    <div id="magnifier">
+                                        <div id="magnifier-inner-box"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analysis Panel -->
+            <div class="lg:col-span-4 space-y-5 order-3">
+
+                <div class="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
+
+                    <!-- Header -->
+                    <div class="px-6 py-5 border-b border-neutral-100">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="text-[10px] font-bold tracking-[0.18em] text-neutral-400 uppercase">
+                                    Color Analysis
+                                </div>
+
+                                <h2 class="text-xl font-black tracking-tight text-neutral-900 mt-1">
+                                    Color Recipe
+                                </h2>
+                            </div>
+
+                            <div id="calc-loader"
+                                 class="hidden flex items-center gap-2 text-xs text-neutral-400">
+                                <div class="loading-spinner"></div>
+                                <span>Calculating</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Result -->
+                    <div id="result-area" class="hidden">
+
+                        <!-- Color comparison -->
+                        <div class="p-6">
+
+                            <div class="grid grid-cols-2 gap-3">
+
+                                <div>
+                                    <div id="target-color-box"
+                                         class="w-full aspect-[1.25] rounded-xl border border-neutral-200 shadow-inner">
+                                    </div>
+
+                                    <div class="mt-2">
+                                        <div class="text-[9px] font-bold tracking-widest text-neutral-400 uppercase">
+                                            Target
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div id="mixed-color-box"
+                                         class="w-full aspect-[1.25] rounded-xl border border-neutral-200 shadow-inner">
+                                    </div>
+
+                                    <div class="mt-2">
+                                        <div class="text-[9px] font-bold tracking-widest text-neutral-400 uppercase">
+                                            Mixed
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                        <!-- Similarity -->
+                        <div class="px-6 pb-6">
+
+                            <div class="flex items-end justify-between mb-3">
+                                <div>
+                                    <div class="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">
+                                        Match
+                                    </div>
+
+                                    <div class="text-sm font-bold text-neutral-700 mt-1">
+                                        Color Similarity
+                                    </div>
+                                </div>
+
+                                <span id="similarity-score"
+                                      class="text-4xl font-black tracking-tight">
+                                    --%
+                                </span>
+                            </div>
+
+                            <div class="w-full bg-neutral-100 h-2 rounded-full overflow-hidden">
+                                <div id="similarity-bar"
+                                     class="h-full rounded-full transition-all duration-700 ease-out"
+                                     style="width: 0%">
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- Recipe -->
+                        <div class="border-t border-neutral-100">
+
+                            <div class="px-6 py-5">
+
+                                <div class="flex items-center justify-between mb-4">
+
+                                    <div>
+                                        <div class="text-[10px] font-bold tracking-[0.18em] text-neutral-400 uppercase">
+                                            Formula
+                                        </div>
+
+                                        <h3 class="text-base font-black text-neutral-900 mt-1">
+                                            CMYWK Mix
+                                        </h3>
+                                    </div>
+
+                                    <div class="text-[10px] font-bold text-neutral-400">
+                                        5 COLORS
+                                    </div>
+
+                                </div>
+
+                                <div id="recipe-list"
+                                     class="space-y-2">
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    <!-- Empty -->
+                    <div id="no-result"
+                         class="text-center py-16 px-6 bg-neutral-50">
+
+                        <div class="w-14 h-14 bg-white rounded-xl border border-neutral-200 flex items-center justify-center mx-auto mb-4">
+
+                            <svg class="w-6 h-6 text-neutral-300"
+                                 fill="none"
+                                 stroke="currentColor"
+                                 viewBox="0 0 24 24">
+
+                                <path stroke-linecap="round"
+                                      stroke-linejoin="round"
+                                      stroke-width="1.8"
+                                      d="M12 4v16m8-8H4">
+                                </path>
+
+                            </svg>
+
+                        </div>
+
+                        <div class="text-sm font-bold text-neutral-500">
+                            Select a color
+                        </div>
+
+                        <div class="text-xs text-neutral-400 mt-1 leading-relaxed">
+                            Click and hold on the image<br>
+                            to sample a color
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+    
+
+    function rgbToLab(rgb) {
+        let [r, g, b] = rgb.map(v => { v /= 255; return v > 0.04045 ? Math.pow((v + 0.055) / 1.055, 2.4) : v / 12.92; });
+        r *= 100; g *= 100; b *= 100;
+        const x = r * 0.4124 + g * 0.3576 + b * 0.1805;
+        const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+        const z = r * 0.0193 + g * 0.1192 + b * 0.9505;
+        let _x = x / 95.047, _y = y / 100.000, _z = z / 108.883;
+        const f = v => v > 0.008856 ? Math.pow(v, 1/3) : (7.787 * v) + (16 / 116);
+        return [(116 * f(_y)) - 16, 500 * (f(_x) - f(_y)), 200 * (f(_y) - f(_z))];
+    }
+
+    function labToRgb(lab) {
+        let [l, a, b] = lab;
+        let y = (l + 16) / 116, x = a / 500 + y, z = y - b / 200;
+        const fInv = v => Math.pow(v, 3) > 0.008856 ? Math.pow(v, 3) : (v - 16 / 116) / 7.787;
+        x = 95.047 * fInv(x) / 100; y = 100.000 * fInv(y) / 100; z = 108.883 * fInv(z) / 100;
+        let r = x * 3.2406 + y * -1.5372 + z * -0.4986, g = x * -0.9689 + y * 1.8758 + z * 0.0415, _b = x * 0.0557 + y * -0.2040 + z * 1.0570;
+        const clip = v => Math.round(Math.max(0, Math.min(1, v > 0.0031308 ? 1.055 * Math.pow(v, 1 / 2.4) - 0.055 : 12.92 * v)) * 255);
+        return [clip(r), clip(g), clip(_b)];
+    }
+
+        const PALETTE_DATA = {
+            'CMYWK': [
+                { id: 'C', name: 'Cyan', hex: '#00FFFF', rgb: [0, 255, 255] },
+                { id: 'M', name: 'Magenta', hex: '#FF00FF', rgb: [255, 0, 255] },
+                { id: 'Y', name: 'Yellow', hex: '#FFFF00', rgb: [255, 255, 0] },
+                { id: 'W', name: 'White', hex: '#FFFFFF', rgb: [255, 255, 255] },
+                { id: 'K', name: 'Black', hex: '#000000', rgb: [0, 0, 0] }
+            ]
+        };
+
+    Object.keys(PALETTE_DATA).forEach(key => { PALETTE_DATA[key] = PALETTE_DATA[key].map(c => ({ ...c, lab: rgbToLab(c.rgb) })); });
+
+        let currentLang = 'zh', currentPaletteId = 'CMYWK', lastSelectedTarget = null, isDragging = false;
+    const elements = {
+        imageLoader: document.getElementById('imageLoader'),
+        mainDropZone: document.getElementById('main-drop-zone'),
+        canvasPlaceholder: document.getElementById('canvas-placeholder'),
+        canvasContainer: document.getElementById('canvas-container'),
+        paletteGrid: document.getElementById('palette-grid'),
+        resultArea: document.getElementById('result-area'),
+        noResult: document.getElementById('no-result'),
+        targetBox: document.getElementById('target-color-box'),
+        mixedBox: document.getElementById('mixed-color-box'),
+        recipeList: document.getElementById('recipe-list'),
+        scoreEl: document.getElementById('similarity-score'),
+        scoreBar: document.getElementById('similarity-bar'),
+        loader: document.getElementById('calc-loader'),
+        magnifier: document.getElementById('magnifier'),
+        setNameDisplay: document.getElementById('set-name-display'),
+        paletteToggle: document.getElementById('palette-toggle')
+    };
+    const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+
+        function renderPaletteGrid() {
+            elements.paletteGrid.innerHTML = '';
+
+            PALETTE_DATA[currentPaletteId].forEach(c => {
+                const div = document.createElement('div');
+
+                div.className =
+                    "group flex flex-col items-center";
+
+                div.innerHTML = `
+            <div class="w-full aspect-[1.4] rounded-xl border border-neutral-200 shadow-sm transition-transform duration-200 group-hover:-translate-y-1"
+                 style="background-color: ${c.hex}">
+            </div>
+
+            <div class="mt-2 text-center">
+                <div class="text-sm font-black text-neutral-800">
+                    ${c.id}
+                </div>
+                <div class="text-[9px] font-bold text-neutral-400 uppercase tracking-wide">
+                    ${c.name}
+                </div>
+            </div>
+        `;
+
+                elements.paletteGrid.appendChild(div);
+            });
+        }
+
+    function toggleMobilePalette() {
+        const isHidden = elements.paletteGrid.classList.contains('hidden');
+        if (isHidden) {
+            elements.paletteGrid.classList.remove('hidden');
+            elements.paletteGrid.classList.add('grid');
+            elements.paletteToggle.parentElement.classList.add('is-open');
+        } else {
+            elements.paletteGrid.classList.add('hidden');
+            elements.paletteGrid.classList.remove('grid');
+            elements.paletteToggle.parentElement.classList.remove('is-open');
+        }
+    }
+
+    function handleFile(file) {
+        if (!file || !file.type.startsWith('image/')) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                elements.canvasPlaceholder.classList.add('hidden'); elements.canvasContainer.classList.remove('hidden');
+                elements.canvasContainer.innerHTML = ''; elements.canvasContainer.appendChild(elements.magnifier);
+                canvas.width = img.width; canvas.height = img.height; ctx.drawImage(img, 0, 0);
+                elements.canvasContainer.appendChild(canvas);
+                startAnalysis(getAreaColor(Math.floor(img.width / 2), Math.floor(img.height / 2)));
+                initInteractionEvents();
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function initInteractionEvents() {
+        canvas.onmousedown = startPicking;
+        window.onmousemove = movePicking;
+        window.onmouseup = stopPicking;
+        canvas.ontouchstart = (e) => { e.preventDefault(); startPicking(e.touches[0]); };
+        window.ontouchmove = (e) => { if(isDragging) movePicking(e.touches[0]); };
+        window.ontouchend = (e) => { if(isDragging) stopPicking(e.changedTouches[0]); };
+    }
+
+    function startPicking(e) { isDragging = true; updateMagnifier(e); elements.magnifier.style.display = 'block'; }
+    function movePicking(e) { if (!isDragging) return; updateMagnifier(e); }
+    function stopPicking(e) {
+        if (!isDragging) return; isDragging = false; elements.magnifier.style.display = 'none';
+        const pos = getRelativePos(e); startAnalysis(getAreaColor(Math.floor(pos.x), Math.floor(pos.y)));
+    }
+
+    function getRelativePos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+    }
+
+    function updateMagnifier(e) {
+        const rect = canvas.getBoundingClientRect(), pos = getRelativePos(e);
+        elements.magnifier.style.left = `${e.clientX - rect.left - 30}px`;
+        elements.magnifier.style.top = `${e.clientY - rect.top - 85}px`;
+        const avgRgb = getAreaColor(Math.floor(pos.x), Math.floor(pos.y));
+        elements.magnifier.style.backgroundColor = `rgb(${avgRgb.join(',')})`;
+    }
+
+    function getAreaColor(x, y) {
+        const radius = 1;
+        const startX = Math.max(0, x - radius), startY = Math.max(0, y - radius);
+        const w = Math.min(canvas.width - startX, 3), h = Math.min(canvas.height - startY, 3);
+        const data = ctx.getImageData(startX, startY, w, h).data;
+        let r=0, g=0, b=0, count=0;
+        for(let i=0; i<data.length; i += 4) { r += data[i]; g += data[i+1]; b += data[i+2]; count++; }
+        return [Math.round(r/count), Math.round(g/count), Math.round(b/count)];
+    }
+
+    elements.imageLoader.onchange = (e) => handleFile(e.target.files[0]);
+    window.addEventListener('paste', (e) => { const items = (e.clipboardData || e.originalEvent.clipboardData).items; for (let i of items) if (i.kind === 'file' && i.type.includes('image')) handleFile(i.getAsFile()); });
+    ['dragover', 'dragenter'].forEach(ev => elements.mainDropZone.addEventListener(ev, (e) => { e.preventDefault(); elements.mainDropZone.classList.add('drag-active'); }, false));
+    ['dragleave', 'dragend', 'drop'].forEach(ev => elements.mainDropZone.addEventListener(ev, (e) => { e.preventDefault(); elements.mainDropZone.classList.remove('drag-active'); }, false));
+    elements.mainDropZone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer, files = dt.files;
+        if (files.length > 0) handleFile(files[0]);
+        else {
+            const html = dt.getData('text/html'), match = html && html.match(/src="([^"]+)"/);
+            if (match && match[1]) {
+                const img = new Image(); img.crossOrigin = "Anonymous";
+                img.onload = () => { const tc = document.createElement('canvas'); tc.width = img.width; tc.height = img.height; tc.getContext('2d').drawImage(img, 0, 0); tc.toBlob(blob => handleFile(blob), 'image/png'); };
+                img.src = match[1];
+            }
+        }
+    }, false);
+
+    function resetApp() { elements.canvasPlaceholder.classList.remove('hidden'); elements.canvasContainer.classList.add('hidden'); elements.resultArea.classList.add('hidden'); elements.noResult.classList.remove('hidden'); elements.imageLoader.value = ''; lastSelectedTarget = null; }
+
+    function startAnalysis(targetRgb) {
+        lastSelectedTarget = targetRgb; elements.noResult.classList.add('hidden'); elements.resultArea.classList.remove('hidden'); elements.loader.classList.remove('hidden'); elements.targetBox.style.backgroundColor = `rgb(${targetRgb.join(',')})`;
+        const targetLab = rgbToLab(targetRgb);
+        setTimeout(() => { renderRecipe(findBestRecipeLab(targetLab), targetRgb, targetLab); elements.loader.classList.add('hidden'); }, 50);
+    }
+
+    function getLabDist(lab1, lab2) { const dL = lab1[0] - lab2[0], da = (lab1[1] - lab2[1]) * 1.25, db = lab1[2] - lab2[2]; return Math.sqrt(dL*dL + da*da + db*db); }
+
+    function findBestRecipeLab(targetLab) {
+        const candidates = PALETTE_DATA[currentPaletteId].map(c => ({ color: c, dist: getLabDist(targetLab, c.lab) })).sort((a, b) => a.dist - b.dist);
+        const numColors = candidates.length; let weights = Array(numColors).fill(0); weights[0] = 100;
+        let bestWeights = [...weights], minErr = Infinity;
+        for (let iter = 0; iter < 1200; iter++) {
+            let improved = false;
+            for (let i = 0; i < numColors; i++) {
+                for (let j = 0; j < numColors; j++) {
+                    if (i === j || weights[i] <= 0) continue;
+                    const step = iter < 250 ? 5 : 1; if(weights[i] < step) continue;
+                    weights[i] -= step; weights[j] += step;
+                    let l=0, a=0, b=0;
+                    for(let k=0; k<numColors; k++) { l += candidates[k].color.lab[0] * weights[k] / 100; a += candidates[k].color.lab[1] * weights[k] / 100; b += candidates[k].color.lab[2] * weights[k] / 100; }
+                    let err = getLabDist(targetLab, [l, a, b]);
+                    if (err < minErr) { minErr = err; bestWeights = [...weights]; improved = true; } else { weights[i] += step; weights[j] -= step; }
+                }
+            }
+            if (!improved && iter > 400) break;
+        }
+        return candidates.map((c, i) => ({ color: c.color, percent: bestWeights[i] })).filter(x => x.percent > 0).sort((a, b) => b.percent - a.percent);
+    }
+
+        function renderRecipe(recipe, targetRgb, targetLab) {
+            elements.recipeList.innerHTML = '';
+
+            let mixedLab = [0, 0, 0];
+
+            recipe.forEach(item => {
+                mixedLab[0] += item.color.lab[0] * item.percent / 100;
+                mixedLab[1] += item.color.lab[1] * item.percent / 100;
+                mixedLab[2] += item.color.lab[2] * item.percent / 100;
+
+                const div = document.createElement('div');
+
+                div.className =
+                    "recipe-item flex items-center gap-3";
+
+                div.innerHTML = `
+            <div class="w-8 h-8 rounded-lg shrink-0 border border-neutral-200 shadow-sm"
+                 style="background-color: ${item.color.hex}">
+            </div>
+
+            <div class="flex-1 min-w-0">
+
+                <div class="flex items-center justify-between gap-3">
+
+                    <div class="flex items-center gap-2">
+
+                        <span class="text-sm font-black text-neutral-900">
+                            ${item.color.id}
+                        </span>
+
+                        <span class="text-[10px] font-bold text-neutral-400 uppercase">
+                            ${item.color.name}
+                        </span>
+
+                    </div>
+
+                    <span class="text-sm font-black text-neutral-900">
+                        ${item.percent}%
+                    </span>
+
+                </div>
+
+                <div class="mt-2 h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+
+                    <div class="h-full rounded-full transition-all duration-700"
+                         style="
+                            width: ${item.percent}%;
+                            background-color: ${item.color.hex};
+                         ">
+                    </div>
+
+                </div>
+
+            </div>
+        `;
+
+                elements.recipeList.appendChild(div);
+            });
+
+            const mixedRgb = labToRgb(mixedLab);
+
+            const similarity = Math.max(
+                0,
+                Math.min(
+                    100,
+                    Math.round(
+                        (1 - getLabDist(targetLab, mixedLab) / 45) * 100
+                    )
+                )
+            );
+
+            elements.mixedBox.style.backgroundColor =
+                `rgb(${mixedRgb.join(',')})`;
+
+            elements.scoreEl.innerText = `${similarity}%`;
+
+            elements.scoreBar.style.width = `${similarity}%`;
+
+            let c =
+                similarity >= 92
+                    ? 'text-emerald-500'
+                    : similarity >= 80
+                        ? 'text-blue-500'
+                        : similarity >= 70
+                            ? 'text-amber-500'
+                            : 'text-red-500';
+
+            let b =
+                similarity >= 92
+                    ? 'bg-emerald-500'
+                    : similarity >= 80
+                        ? 'bg-blue-500'
+                        : similarity >= 70
+                            ? 'bg-amber-500'
+                            : 'bg-red-500';
+
+            elements.scoreEl.className =
+                `text-4xl font-black tracking-tight ${c}`;
+
+            elements.scoreBar.className =
+                `h-full rounded-full transition-all duration-700 ease-out ${b}`;
+        }
+
+    renderPaletteGrid(); setLang('zh');
+    </script>
+   
+
+</body>
+</html>
