@@ -534,9 +534,9 @@
 
         const PALETTE_DATA = {
             'CMYWK': [
-                { id: 'C', name: 'Cyan', hex: '#00FFFF', rgb: [0, 255, 255] },
-                { id: 'M', name: 'Magenta', hex: '#FF00FF', rgb: [255, 0, 255] },
-                { id: 'Y', name: 'Yellow', hex: '#FFFF00', rgb: [255, 255, 0] },
+                { id: 'C', name: 'Cyan', hex: '#00a8ec', rgb: [0, 168, 236] },
+                { id: 'M', name: 'Magenta', hex: '#e3007b', rgb: [227, 0, 123] },
+                { id: 'Y', name: 'Yellow', hex: '#f8f400', rgb: [248, 244, 0] },
                 { id: 'W', name: 'White', hex: '#FFFFFF', rgb: [255, 255, 255] },
                 { id: 'K', name: 'Black', hex: '#000000', rgb: [0, 0, 0] }
             ]
@@ -693,37 +693,60 @@
 
     function getLabDist(lab1, lab2) { const dL = lab1[0] - lab2[0], da = (lab1[1] - lab2[1]) * 1.25, db = lab1[2] - lab2[2]; return Math.sqrt(dL*dL + da*da + db*db); }
 
-    function findBestRecipeLab(targetLab) {
-        const candidates = PALETTE_DATA[currentPaletteId].map(c => ({ color: c, dist: getLabDist(targetLab, c.lab) })).sort((a, b) => a.dist - b.dist);
-        const numColors = candidates.length; let weights = Array(numColors).fill(0); weights[0] = 100;
-        let bestWeights = [...weights], minErr = Infinity;
-        for (let iter = 0; iter < 1200; iter++) {
-            let improved = false;
-            for (let i = 0; i < numColors; i++) {
-                for (let j = 0; j < numColors; j++) {
-                    if (i === j || weights[i] <= 0) continue;
-                    const step = iter < 250 ? 5 : 1; if(weights[i] < step) continue;
-                    weights[i] -= step; weights[j] += step;
-                    let l=0, a=0, b=0;
-                    for(let k=0; k<numColors; k++) { l += candidates[k].color.lab[0] * weights[k] / 100; a += candidates[k].color.lab[1] * weights[k] / 100; b += candidates[k].color.lab[2] * weights[k] / 100; }
-                    let err = getLabDist(targetLab, [l, a, b]);
-                    if (err < minErr) { minErr = err; bestWeights = [...weights]; improved = true; } else { weights[i] += step; weights[j] -= step; }
+        function findBestRecipeLab(targetLab) {
+            const candidates = PALETTE_DATA[currentPaletteId].map(c => ({color: c,dist: getLabDist(targetLab, c.lab)})).sort((a, b) => a.dist - b.dist);
+            const numColors = candidates.length;
+            let weights = Array(numColors).fill(0);
+            weights[0] = 10;
+            let bestWeights = [...weights];
+            let minErr = Infinity;
+            for (let iter = 0; iter < 1200; iter++) {
+                let improved = false;
+                for (let i = 0; i < numColors; i++) {
+                    for (let j = 0; j < numColors; j++) {
+                        if (i === j || weights[i] <= 0 || weights[j] >= 10)
+                            continue;
+                        const step = iter < 250 ? 2 : 1;
+                        if (weights[i] < step || weights[j] + step > 10)
+                            continue;
+                        weights[i] -= step;
+                        weights[j] += step;
+                        const total = weights.reduce((sum, w) => sum + w, 0);
+                        let l = 0;
+                        let a = 0;
+                        let b = 0;
+                        for (let k = 0; k < numColors; k++) {
+                            l += candidates[k].color.lab[0] * weights[k] / total;
+                            a += candidates[k].color.lab[1] * weights[k] / total;
+                            b += candidates[k].color.lab[2] * weights[k] / total;
+                        }
+                        const err = getLabDist(targetLab, [l, a, b]);
+                        if (err < minErr) {
+                            minErr = err;
+                            bestWeights = [...weights];
+                            improved = true;
+                        } else {
+                            weights[i] += step;
+                            weights[j] -= step;
+                        }
+                    }
                 }
+                if (!improved && iter > 400)
+                    break;
             }
-            if (!improved && iter > 400) break;
+            return candidates.map((c, i) => ({color: c.color,parts: bestWeights[i]})).filter(x => x.parts > 0).sort((a, b) => b.parts - a.parts);
         }
-        return candidates.map((c, i) => ({ color: c.color, percent: bestWeights[i] })).filter(x => x.percent > 0).sort((a, b) => b.percent - a.percent);
-    }
 
         function renderRecipe(recipe, targetRgb, targetLab) {
             elements.recipeList.innerHTML = '';
 
             let mixedLab = [0, 0, 0];
+            const totalParts = recipe.reduce((sum, item) => sum + item.parts, 0);
 
             recipe.forEach(item => {
-                mixedLab[0] += item.color.lab[0] * item.percent / 100;
-                mixedLab[1] += item.color.lab[1] * item.percent / 100;
-                mixedLab[2] += item.color.lab[2] * item.percent / 100;
+                mixedLab[0] += item.color.lab[0] * item.parts / totalParts;
+                mixedLab[1] += item.color.lab[1] * item.parts / totalParts;
+                mixedLab[2] += item.color.lab[2] * item.parts / totalParts;
 
                 const div = document.createElement('div');
 
@@ -752,7 +775,7 @@
                     </div>
 
                     <span class="text-sm font-black text-neutral-900">
-                        ${item.percent}%
+                        ${item.parts} 份
                     </span>
 
                 </div>
@@ -761,7 +784,7 @@
 
                     <div class="h-full rounded-full transition-all duration-700"
                          style="
-                            width: ${item.percent}%;
+                            width: ${(item.parts / 10) * 100}%;
                             background-color: ${item.color.hex};
                          ">
                     </div>
